@@ -1,0 +1,126 @@
+/*Section B Create tables for detailed and 
+  summary views. This section creates and 
+  populates the tables.*/
+  
+CREATE TABLE detailed_table
+AS
+SELECT i.store_id, name,extract(month from r.rental_date) AS month, customer_id, r.rental_id
+FROM rental r
+LEFT JOIN inventory i ON i.inventory_id = r.inventory_id
+LEFT JOIN film_category f ON f.film_id = i.film_id
+LEFT JOIN category c ON c.category_id = f.category_id
+GROUP BY i.store_id, name, month,r.rental_id, customer_id
+ORDER BY i.store_id,month;
+
+
+CREATE TABLE summary_table
+AS
+SELECT store_id, name as category, rental_month(month) AS month, count(rental_id) AS number_of_rentals
+FROM detailed_table
+GROUP BY store_id, category, month
+ORDER BY store_id, month, category;
+
+
+/* Section C Query to extract the raw data for
+   the detailed table.*/
+   
+SELECT i.store_id, name,extract(month from r.rental_date) AS month, customer_id, r.rental_id
+FROM rental r
+LEFT JOIN inventory i ON i.inventory_id = r.inventory_id
+LEFT JOIN film_category f ON f.film_id = i.film_id
+LEFT JOIN category c ON c.category_id = f.category_id
+GROUP BY i.store_id, name, month,r.rental_id, customer_id
+ORDER BY i.store_id,month;
+
+
+/* Section D Function to perform the  transformation from section A4.
+Transforms the numeric month value into the names of the months.*/
+
+CREATE OR REPLACE FUNCTION rental_month(m_num double precision)
+RETURNS varchar
+LANGUAGE  plpgsql 
+AS
+$$
+DECLARE m_name varchar;
+BEGIN
+	 
+	 SELECT CASE 
+             		WHEN m_num = 1 THEN  'January'
+			WHEN m_num = 2 THEN  'February'
+			WHEN m_num = 3 THEN  'March'
+			WHEN m_num = 4 THEN  'April'
+			WHEN m_num = 5 THEN  'May'
+			WHEN m_num = 6 THEN  'June'
+			WHEN m_num = 7 THEN  'July'
+			WHEN m_num = 8 THEN  'August'
+			WHEN m_num = 9 THEN  'September'
+			WHEN m_num = 10 THEN  'October'
+			WHEN m_num = 11 THEN  'November'
+			WHEN m_num = 12 THEN  'December'
+	END into m_name;	
+RETURN m_name;
+END;
+$$
+
+/* Section E Trigger on detailed table to update the summary
+   table whenever data is added to the detailed table.*/
+
+CREATE TRIGGER update_summary
+	AFTER INSERT
+	ON detailed_table
+	FOR EACH STATEMENT
+	EXECUTE PROCEDURE update_summary_table();
+
+
+
+CREATE OR REPLACE FUNCTION update_summary_table()
+RETURNS TRIGGER
+LANGUAGE  plpgsql 
+AS
+$$
+BEGIN
+DELETE FROM summary_table;
+INSERT INTO summary_table
+SELECT store_id, name as category, rental_month(month) as month, count(rental_id) as number_of_rentals
+FROM detailed_table
+GROUP BY store_id, category, month
+ORDER BY store_id, month, category;
+RETURN NEW;
+END;
+$$;
+
+/* Section F Stored procedure to refresh data in both the detailed
+   and summary tables. Clears tables then reloads data from part C.
+   this should be executed monthly.*/
+
+CREATE OR REPLACE PROCEDURE refresh_tables()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+DELETE FROM summary_table;
+DELETE FROM detailed_table;
+
+INSERT INTO detailed_table
+SELECT i.store_id, name,extract(month from r.rental_date) AS month, customer_id, r.rental_id
+FROM rental r
+LEFT JOIN inventory i ON i.inventory_id = r.inventory_id
+LEFT JOIN film_category f ON f.film_id = i.film_id
+LEFT JOIN category c ON c.category_id = f.category_id
+GROUP BY i.store_id, name, month,r.rental_id, customer_id
+ORDER BY i.store_id,month;
+
+INSERT INTO summary_table
+SELECT store_id, name as category, rental_month(month) as month, count(rental_id) as number_of_rentals
+FROM detailed_table
+GROUP BY store_id, category, month
+ORDER BY store_id, month, category;
+
+RETURN;
+END;
+$$;
+
+
+
+SELECT * FROM detailed_table;
+
+SELECT * FROM summary_table;
